@@ -131,9 +131,8 @@ public class Client {
                                     System.out.print("Prod 2: "); String s2 = sc.next();
                                     new Thread(() -> {
                                         try {
-                                            System.out.println("[Background] A vigiar vendas de " + s1 + " e " + s2 + "...");
                                             String res = stub.esperarSimultaneas(s1, s2);
-                                            System.out.println("!!! NOTIFICAÇÃO !!! " + res);
+                                            System.out.println("!!! NOTIFICAÇÃO !!! " + res + " [Simultaneas]");
                                         } catch (Exception e) {
                                             System.out.println("[Background] Erro na vigilância: " + e.getMessage());
                                         }
@@ -145,7 +144,7 @@ public class Client {
                                     new Thread(() -> {
                                         try {
                                             String res = stub.esperarConsecutivas(nC);
-                                            System.out.println("!!! NOTIFICAÇÃO !!! " + res);
+                                            System.out.println("!!! NOTIFICAÇÃO !!! " + res + " [Consecutivas]");
                                         } catch (Exception e) {
                                             System.out.println("[Background] Erro na vigilância: " + e.getMessage());
                                         }

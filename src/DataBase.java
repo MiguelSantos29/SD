@@ -6,11 +6,9 @@ import java.util.concurrent.locks.*;
 
 public class DataBase {
 
-    private final int MAX_SERIES_MEMORIA = 3; // S
+    private final int maxSeriesMemoria; // S
     private final ReentrantLock lock = new ReentrantLock();
     private final long retentionPeriod; // D
-
-    private long simulatedOffset = 0;
 
     // Utilizadores
     private Map<String, String> utilizadores = new HashMap<>();
@@ -23,21 +21,39 @@ public class DataBase {
     private int diaCorrenteID = 0;
 
     // --- 5: NOTIFICAÇÕES ---
-    private final Condition condicaoVenda = lock.newCondition();
+    // Consecutivas: Produto -> Lista de quem espera
+    private final List<EsperaConsecutiva> waitersConsecutivas = new ArrayList<>();
+
+    // Simultâneas: Produto -> Lista de quem espera por este produto (+ o par dele)
+    private final Map<String, List<EsperaSimultanea>> waitersSimultaneas = new HashMap<>();
     private String ultimoProdutoVendido = null;
     private int contadorConsecutivas = 0;
 
     public DataBase(int dias, int s) {
         // Inicializar a Cache com ordem de acesso (LRU)
-        this.cacheSeries = new LinkedHashMap<>(MAX_SERIES_MEMORIA, 0.75f, true) {
+        this.maxSeriesMemoria = s;
+        this.cacheSeries = new LinkedHashMap<>(maxSeriesMemoria, 0.75f, true) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<Integer, Map<String, List<Venda>>> eldest) {
-                return size() > MAX_SERIES_MEMORIA;
+                return size() > maxSeriesMemoria;
             }
         };
 
         this.retentionPeriod = (long) dias * 24 * 60 * 60 * 1000;
         carregarEstadoUtilizadores(); // Carrega apenas users
+    }
+
+    // --- CLASSES PARA GERIR OS SIGNALS ---
+    private static class EsperaConsecutiva {
+        int alvo; // Quantas quer (ex: 3)
+        Condition cond;
+        public EsperaConsecutiva(int a, Condition c) { this.alvo = a; this.cond = c; }
+    }
+
+    private static class EsperaSimultanea {
+        String outroProduto; // O par que falta
+        Condition cond;
+        public EsperaSimultanea(String outro, Condition c) { this.outroProduto = outro; this.cond = c; }
     }
 
     // --- GESTÃO DE UTILIZADORES ---
@@ -74,14 +90,20 @@ public class DataBase {
             cacheSeries.put(diaCorrenteID, new HashMap<>(diaCorrenteVendas));
             diaCorrenteID++;
             diaCorrenteVendas = new HashMap<>();
-
-            simulatedOffset += 24 * 60 * 60 * 1000L;
             ultimoProdutoVendido = null;
             contadorConsecutivas = 0;
 
             System.out.println("[Novo Dia] Dia " + (diaCorrenteID-1) + " arquivado. Iniciando Dia " + diaCorrenteID);
 
-            condicaoVenda.signalAll(); // Avisar waiters que o dia mudou
+            for (EsperaConsecutiva req : waitersConsecutivas) {
+                req.cond.signal(); // Avisar todos que o dia mudou
+            }
+
+            for (List <EsperaSimultanea> lista : waitersSimultaneas.values()) {
+                for (EsperaSimultanea req : lista) {
+                    req.cond.signal(); // Avisar todos que o dia mudou
+                }
+            }
         } finally {
             lock.unlock();
         }
@@ -102,7 +124,23 @@ public class DataBase {
                 contadorConsecutivas = 1;
             }
 
-            condicaoVenda.signalAll(); // Req 5: Acorda waiters
+            for (EsperaConsecutiva req : waitersConsecutivas) {
+                // Se vendemos "Banana" 3 vezes e o cliente queria 2, acordamo-lo!
+                if (contadorConsecutivas >= req.alvo) {
+                    req.cond.signal();
+                }
+            }
+
+            // --- NOTIFICAR SIMULTÂNEAS (Cirúrgico) ---
+            List<EsperaSimultanea> listaSim = waitersSimultaneas.get(produto);
+            if (listaSim != null) {
+                for (EsperaSimultanea req : listaSim) {
+                    // Verificamos se O OUTRO produto já existe hoje
+                    if (temVendaHoje(req.outroProduto)) {
+                        req.cond.signal(); // Acorda SÓ esta thread
+                    }
+                }
+            }
 
         } finally {
             lock.unlock();
@@ -140,7 +178,7 @@ public class DataBase {
             long totalQtd = 0; long totalVol = 0;
             int maxPreco = 0; int countVendas = 0;
             // i=0 -> Hoje || i=1 -> Ontem
-            for (int i = 0; i < d; i++) {
+            for (int i = 1; i < d; i++) {
                 Map<String, List<Venda>> mapaDia = getVendasDoDia(i);
                 if (mapaDia != null && mapaDia.containsKey(produto)) {
                     List<Venda> lista = mapaDia.get(produto);
@@ -186,48 +224,78 @@ public class DataBase {
 
     // --- REQ 5: NOTIFICAÇÕES ---
 
-    public boolean esperarVendasSimultaneas(String p1, String p2) throws InterruptedException {
+    public String esperarVendasConsecutivas(int n) throws InterruptedException {
         lock.lock();
         try {
             int diaInicial = this.diaCorrenteID;
+            Condition minhaCond = lock.newCondition();
+            EsperaConsecutiva req = new EsperaConsecutiva(n, minhaCond);
 
-            while (true) {
-                if (this.diaCorrenteID != diaInicial) return false; // Dia mudou
+            waitersConsecutivas.add(req);
 
-                if (temVendaHoje(p1) && temVendaHoje(p2)) {
-                    return true;
+            try {
+                while (true) {
+                    if (this.diaCorrenteID != diaInicial) {
+                        return null;
+                    }
+
+                    // Se o objetivo foi atingido (N vezes o mesmo produto)
+                    if (contadorConsecutivas >= n && ultimoProdutoVendido != null) {
+                        return ultimoProdutoVendido; // Sucesso! Retorna "Banana"
+                    }
+
+                    minhaCond.await();
                 }
-                condicaoVenda.await();
+            } finally {
+                waitersConsecutivas.remove(req);
             }
         } finally {
             lock.unlock();
         }
     }
 
-    public String esperarVendasConsecutivas(int n) throws InterruptedException {
+    public boolean esperarVendasSimultaneas(String p1, String p2) throws InterruptedException {
         lock.lock();
         try {
             int diaInicial = this.diaCorrenteID;
-            while (true) {
-                if (this.diaCorrenteID != diaInicial) return null;
+            Condition minhaCond = lock.newCondition();
+            EsperaSimultanea req1 = new EsperaSimultanea(p2, minhaCond); // Se vender p1, verifica p2
+            EsperaSimultanea req2 = new EsperaSimultanea(p1, minhaCond); // Se vender p2, verifica p1
 
-                if (contadorConsecutivas >= n && ultimoProdutoVendido != null) {
-                    return ultimoProdutoVendido;
+            // Registar interesse nos dois produtos
+            waitersSimultaneas.computeIfAbsent(p1, k -> new ArrayList<>()).add(req1);
+            waitersSimultaneas.computeIfAbsent(p2, k -> new ArrayList<>()).add(req2);
+
+            while (true) {
+                if (this.diaCorrenteID != diaInicial) {
+                    // Limpar registos
+                    removerSimultanea(p1, req1);
+                    removerSimultanea(p2, req2);
+                    return false;
                 }
-                condicaoVenda.await();
+
+                if (temVendaHoje(p1) && temVendaHoje(p2)) {
+                    removerSimultanea(p1, req1);
+                    removerSimultanea(p2, req2);
+                    return true;
+                }
+                minhaCond.await();
             }
         } finally {
             lock.unlock();
         }
+    }
+
+    // Auxiliar para limpar
+    private void removerSimultanea(String prod, EsperaSimultanea req) {
+        List<EsperaSimultanea> l = waitersSimultaneas.get(prod);
+        if (l != null) l.remove(req);
     }
 
     private boolean temVendaHoje(String prod) {
         return diaCorrenteVendas.containsKey(prod) && !diaCorrenteVendas.get(prod).isEmpty();
     }
     // --- GESTÃO DE DISCO (REQ 7) ---
-
-    // Obtém o mapa de vendas de um dia passado (RAM Cache ou Disco)
-    // d=1 significa 1 dia atrás (diaCorrenteID - 1)
     private Map<String, List<Venda>> getVendasDoDia(int d) {
         int targetDayID = diaCorrenteID - d;
         if (targetDayID < 0) return null; // Antes do inicio dos tempos
