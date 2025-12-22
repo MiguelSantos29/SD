@@ -1,19 +1,24 @@
 package src;
 
+import src.Middleware.TaggedConnection;
+
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 public class Server {
-    private static final int PORTA = 12345;
-    private static final int DIAS = 5;
+    private static int PORTA = 12345;
+    private static int D = 30; // 30 Dias de retenção
+    private static int S = 3;  // 3 Dias em Cache (RAM)
 
     public static void main(String[] args) {
         try {
-            DataBase db = new DataBase(DIAS);
+            if (args.length >= 1) PORTA = Integer.parseInt(args[0]);
+            if (args.length >= 2) D = Integer.parseInt(args[1]);
+            if (args.length >= 3) S = Integer.parseInt(args[2]);
+
+            DataBase db = new DataBase(D, S);
             // Abrir o Socket
             ServerSocket ss = new ServerSocket(PORTA);
             System.out.println("Servidor iniciado na porta " + PORTA + "...");
@@ -114,17 +119,46 @@ public class Server {
                                     for (int i = 0; i < nProds; i++) prods.add(dis.readUTF());
                                     int dia = dis.readInt();
 
+                                    // Obter a lista crua da DB
                                     List<Venda> lista = db.consultarEventos(prods, dia);
 
-                                    dos.writeByte(6); // Tag de Lista
-                                    dos.writeBoolean(true);
-                                    dos.writeUTF("Lista obtida");
-                                    dos.writeInt(lista.size());
+                                    // COMPACTAR OS DADOS
+                                    // Mapa: Produto -> (Preço -> [TotalQtd, NumVendas])
+                                    Map<String, Map<Integer, int[]>> resumo = new HashMap<>();
+
                                     for (Venda v : lista) {
-                                        dos.writeLong(v.timestamp);
-                                        dos.writeUTF(v.produto);
-                                        dos.writeInt(v.quantidade);
-                                        dos.writeInt(v.preco);
+                                        resumo.putIfAbsent(v.produto, new HashMap<>());
+                                        Map<Integer, int[]> porPreco = resumo.get(v.produto);
+
+                                        porPreco.putIfAbsent(v.preco, new int[]{0, 0});
+                                        int[] dados = porPreco.get(v.preco);
+
+                                        dados[0] += v.quantidade; // Soma Quantidade
+                                        dados[1]++;               // Incrementa Contador de Vendas
+                                    }
+
+                                    // Enviar Formato Compacto
+                                    dos.writeByte(6); // Tag Sucesso
+                                    dos.writeBoolean(true);
+                                    dos.writeUTF("Lista Compactada");
+
+                                    // Contar quantas entradas únicas vamos enviar para o cliente saber ler
+                                    int totalEntradasUnicas = 0;
+                                    for (var mapPrecos : resumo.values()) totalEntradasUnicas += mapPrecos.size();
+
+                                    dos.writeInt(totalEntradasUnicas);
+
+                                    for (var entryProd : resumo.entrySet()) {
+                                        String nomeProd = entryProd.getKey();
+                                        for (var entryPreco : entryProd.getValue().entrySet()) {
+                                            int preco1 = entryPreco.getKey();
+                                            int[] vals = entryPreco.getValue();
+
+                                            dos.writeUTF(nomeProd); // Produto
+                                            dos.writeInt(preco1);    // Preço
+                                            dos.writeInt(vals[0]);  // Quantidade Total
+                                            dos.writeInt(vals[1]);  // Número de Transações
+                                        }
                                     }
                                     break;
                                 case 7: // Registar (Ficou com o 7 para não conflitar com o Stub antigo)

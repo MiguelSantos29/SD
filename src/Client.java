@@ -108,18 +108,22 @@ public class Client {
                                     System.out.print("Quantos produtos?: ");
                                     int n = sc.nextInt();
                                     Set<String> prods = new HashSet<>();
-                                    for(int i=0; i<n; i++) {
-                                        System.out.print("Prod " + (i+1) + ": ");
-                                        prods.add(sc.next());
-                                    }
+                                        for(int i=0; i<n; i++) {
+                                            System.out.print("Prod " + (i+1) + ": ");
+                                            prods.add(sc.next());
+                                        }
                                     System.out.print("Dia (1=Ontem, etc): ");
                                     int diaE = sc.nextInt();
 
-                                    List<Venda> lista = stub.consultarEventos(prods, diaE);
+                                    // Agora recebemos a lista compacta
+                                    List<Stub.ResumoVenda> lista = stub.consultarEventos(prods, diaE);
 
-                                    System.out.println("--- Eventos Encontrados (" + lista.size() + ") ---");
-                                    for(Venda v : lista) {
-                                        System.out.println(v.produto + " | Qtd: " + v.quantidade + " | " + new Date(v.timestamp));
+                                        System.out.println("--- Resumo de Eventos ---");
+                                        System.out.printf("%-15s | %-10s | %-10s | %-10s%n", "Produto", "Preço", "Qtd Total", "Nº Vendas");
+                                        System.out.println("---------------------------------------------------------");
+
+                                    for(Stub.ResumoVenda v : lista) {
+                                        System.out.printf("%-15s | %-10d | %-10d | %-10d%n", v.produto, v.preco, v.qtdTotal, v.numVendas);
                                     }
                                     break;
                                 case 6:

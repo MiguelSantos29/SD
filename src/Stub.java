@@ -1,5 +1,8 @@
 package src;
 
+import src.Middleware.Demultiplexer;
+import src.Middleware.TaggedConnection;
+
 import java.io.*;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -89,31 +92,45 @@ public class Stub implements AutoCloseable {
         return lerRespostaSimples(dis);
     }
 
-    public List<Venda> consultarEventos(Set<String> prods, int dia) throws Exception {
+    // Criar uma classe auxiliar estática dentro do Stub ou fora
+    public static class ResumoVenda {
+        public String produto;
+        public int preco;
+        public int qtdTotal;
+        public int numVendas;
+
+        public ResumoVenda(String p, int pr, int q, int n) {
+            this.produto = p; this.preco = pr; this.qtdTotal = q; this.numVendas = n;
+        }
+    }
+
+    // Alterar o método consultarEventos para devolver List<ResumoVenda>
+    public List<ResumoVenda> consultarEventos(Set<String> prods, int dia) throws Exception {
         DataInputStream dis = sendAndReceive(5, dos -> {
             dos.writeInt(prods.size());
             for (String p : prods) dos.writeUTF(p);
             dos.writeInt(dia);
         });
 
-        // Ler resposta complexa (Tag 6)
         int tag = dis.readByte();
         if (tag != 6) {
+            boolean suc = dis.readBoolean();
             String msg = dis.readUTF();
             throw new RuntimeException("Erro servidor: " + msg);
         }
 
         dis.readBoolean(); // Sucesso
-        dis.readUTF();     // Msg "Lista obtida"
+        dis.readUTF();     // Msg
 
-        int size = dis.readInt();
-        List<Venda> lista = new ArrayList<>();
-        for(int i=0; i<size; i++) {
-            long ts = dis.readLong();
+        int numEntradas = dis.readInt();
+        List<ResumoVenda> lista = new ArrayList<>();
+
+        for(int i=0; i<numEntradas; i++) {
             String p = dis.readUTF();
-            int q = dis.readInt();
-            int pr = dis.readInt();
-            lista.add(new Venda(ts, p, q, pr));
+            int preco = dis.readInt();
+            int qtd = dis.readInt();
+            int num = dis.readInt();
+            lista.add(new ResumoVenda(p, preco, qtd, num));
         }
         return lista;
     }

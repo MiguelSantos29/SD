@@ -1,4 +1,6 @@
-package src;
+package src.Testes;
+
+import src.Stub;
 
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;

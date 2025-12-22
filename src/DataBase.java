@@ -27,7 +27,7 @@ public class DataBase {
     private String ultimoProdutoVendido = null;
     private int contadorConsecutivas = 0;
 
-    public DataBase(int dias) {
+    public DataBase(int dias, int s) {
         // Inicializar a Cache com ordem de acesso (LRU)
         this.cacheSeries = new LinkedHashMap<>(MAX_SERIES_MEMORIA, 0.75f, true) {
             @Override
@@ -71,11 +71,7 @@ public class DataBase {
         try {
             // Guardar o dia que acabou no disco
             salvarDiaEmDisco(diaCorrenteID, diaCorrenteVendas);
-
-            // Colocar na cache (pode expulsar um antigo da RAM)
             cacheSeries.put(diaCorrenteID, new HashMap<>(diaCorrenteVendas));
-
-            // Resetar estado para o novo dia
             diaCorrenteID++;
             diaCorrenteVendas = new HashMap<>();
 
@@ -141,16 +137,11 @@ public class DataBase {
     public double consultarAgregacao(String produto, int d, int tipo) {
         lock.lock();
         try {
-            long totalQtd = 0;
-            long totalVol = 0;
-            int maxPreco = 0;
-            int countVendas = 0;
-
-            // Percorre os últimos d dias "excluindo o dia corrente".
-
-            for (int i = 1; i <= d; i++) {
-                Map<String, List<Venda>> mapaDia = getVendasDoDia(i); // Busca ao Disco/Cache
-
+            long totalQtd = 0; long totalVol = 0;
+            int maxPreco = 0; int countVendas = 0;
+            // i=0 -> Hoje || i=1 -> Ontem
+            for (int i = 0; i < d; i++) {
+                Map<String, List<Venda>> mapaDia = getVendasDoDia(i);
                 if (mapaDia != null && mapaDia.containsKey(produto)) {
                     List<Venda> lista = mapaDia.get(produto);
                     for (Venda v : lista) {
@@ -161,12 +152,10 @@ public class DataBase {
                     }
                 }
             }
-
             switch (tipo) {
                 case 0: return totalQtd;
                 case 1: return totalVol;
-                case 2: return countVendas == 0 ? 0 : (double) totalVol / totalQtd; // Preço médio ponderado? Ou media simples dos preços unitários?
-                // Se for media simples dos preços unitários, a lógica seria diferente. Assumi media ponderada (Volume/Qtd)
+                case 2: return countVendas == 0 ? 0 : (double) totalVol / totalQtd; // Média
                 case 3: return maxPreco;
                 default: return 0;
             }
