@@ -13,7 +13,6 @@ public class TesterConcSeq {
                 try {
                     stub.registar("waiter", "123");
                 } catch (Exception e){
-                    // Ignorar se já existir
                 }
                 stub.autenticar("waiter", "123");
 

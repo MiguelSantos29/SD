@@ -1,168 +1,85 @@
 package src;
 
-import java.io.*;
 import java.util.*;
 import java.util.concurrent.locks.*;
 
 public class DataBase {
-
-    private final int maxSeriesMemoria; // S
+    private final ReentrantLock lockAuth = new ReentrantLock();
     private final ReentrantLock lock = new ReentrantLock();
-    private final long retentionPeriod; // D
 
-    // Utilizadores
-    private Map<String, String> utilizadores = new HashMap<>();
-
-    // Cache LRU: Chave=ID Dia, Valor=Mapa Vendas. Remove o mais antigo se passar do limite.
-    private final Map<Integer, Map<String, List<Venda>>> cacheSeries;
-
-    // Dia Corrente (Sempre em RAM)
-    private Map<String, List<Venda>> diaCorrenteVendas = new HashMap<>();
-    private int diaCorrenteID = 0;
-
-    // --- 5: NOTIFICAÇÕES ---
-    // Consecutivas: Produto -> Lista de quem espera
-    private final List<EsperaConsecutiva> waitersConsecutivas = new ArrayList<>();
-
-    // Simultâneas: Produto -> Lista de quem espera por este produto (+ o par dele)
-    private final Map<String, List<EsperaSimultanea>> waitersSimultaneas = new HashMap<>();
-    private String ultimoProdutoVendido = null;
-    private int contadorConsecutivas = 0;
+    // Módulos
+    private final Memoria mem;
+    private final GestorCondicoes conds;
 
     public DataBase(int dias, int s) {
-        // Inicializar a Cache com ordem de acesso (LRU)
-        this.maxSeriesMemoria = s;
-        this.cacheSeries = new LinkedHashMap<>(maxSeriesMemoria, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<Integer, Map<String, List<Venda>>> eldest) {
-                return size() > maxSeriesMemoria;
-            }
-        };
-
-        this.retentionPeriod = (long) dias * 24 * 60 * 60 * 1000;
-        carregarEstadoUtilizadores(); // Carrega apenas users
+        this.mem = new Memoria(dias, s);
+        this.conds = new GestorCondicoes();
     }
 
-    // --- CLASSES PARA GERIR OS SIGNALS ---
-    private static class EsperaConsecutiva {
-        int alvo; // Quantas quer (ex: 3)
-        Condition cond;
-        public EsperaConsecutiva(int a, Condition c) { this.alvo = a; this.cond = c; }
-    }
-
-    private static class EsperaSimultanea {
-        String outroProduto; // O par que falta
-        Condition cond;
-        public EsperaSimultanea(String outro, Condition c) { this.outroProduto = outro; this.cond = c; }
-    }
-
-    // --- GESTÃO DE UTILIZADORES ---
-
+    // --- AUTH ---
     public boolean registarUtilizador(String user, String pass) {
-        lock.lock();
+        lockAuth.lock();
         try {
-            if (utilizadores.containsKey(user)) return false;
-            utilizadores.put(user, pass);
-            salvarUtilizadores(); // Persistir logo
+            if (mem.utilizadores.containsKey(user)) return false;
+            mem.utilizadores.put(user, pass);
+            mem.salvarUtilizadores();
             return true;
-        } finally {
-            lock.unlock();
-        }
+        } finally { lockAuth.unlock(); }
     }
 
     public boolean autenticarUtilizador(String user, String pass) {
-        lock.lock();
+        lockAuth.lock();
         try {
-            String passwordReal = utilizadores.get(user);
-            return passwordReal != null && passwordReal.equals(pass);
-        } finally {
-            lock.unlock();
-        }
+            String real = mem.utilizadores.get(user);
+            return real != null && real.equals(pass);
+        } finally { lockAuth.unlock(); }
     }
 
-    // --- GESTÃO DE TEMPO E DIAS ---
-
+    // --- ESCRITAS ---
     public void startNewDay() {
         lock.lock();
         try {
-            // Guardar o dia que acabou no disco
-            salvarDiaEmDisco(diaCorrenteID, diaCorrenteVendas);
-            cacheSeries.put(diaCorrenteID, new HashMap<>(diaCorrenteVendas));
-            diaCorrenteID++;
-            diaCorrenteVendas = new HashMap<>();
-            ultimoProdutoVendido = null;
-            contadorConsecutivas = 0;
+            System.out.println("[Novo Dia] Arquivando dia " + mem.diaCorrenteID);
 
-            System.out.println("[Novo Dia] Dia " + (diaCorrenteID-1) + " arquivado. Iniciando Dia " + diaCorrenteID);
+            mem.arquivarDiaCorrente();
 
-            for (EsperaConsecutiva req : waitersConsecutivas) {
-                req.cond.signal(); // Avisar todos que o dia mudou
-            }
+            // Resetar lógica de eventos
+            conds.ultimoProdutoVendido = null;
+            conds.contadorConsecutivas = 0;
+            conds.notificarMudancaDia();
+            conds.globalEventID = 0;
 
-            for (List <EsperaSimultanea> lista : waitersSimultaneas.values()) {
-                for (EsperaSimultanea req : lista) {
-                    req.cond.signal(); // Avisar todos que o dia mudou
-                }
-            }
         } finally {
             lock.unlock();
         }
     }
 
-    // --- INSERÇÕES ---
     public void inserir(long ts, String produto, int qtd, int preco) {
         lock.lock();
         try {
-            Venda v = new Venda(ts, produto, qtd, preco);
-            diaCorrenteVendas.computeIfAbsent(produto, k -> new ArrayList<>()).add(v);
+            mem.adicionarVendaHoje(new Venda(ts, produto, qtd, preco));
 
-            // Req 5: Consecutivas
-            if (produto.equals(ultimoProdutoVendido)) {
-                contadorConsecutivas++;
-            } else {
-                ultimoProdutoVendido = produto;
-                contadorConsecutivas = 1;
-            }
-
-            for (EsperaConsecutiva req : waitersConsecutivas) {
-                // Se vendemos "Banana" 3 vezes e o cliente queria 2, acordamo-lo!
-                if (contadorConsecutivas >= req.alvo) {
-                    req.cond.signal();
-                }
-            }
-
-            // --- NOTIFICAR SIMULTÂNEAS (Cirúrgico) ---
-            List<EsperaSimultanea> listaSim = waitersSimultaneas.get(produto);
-            if (listaSim != null) {
-                for (EsperaSimultanea req : listaSim) {
-                    // Verificamos se O OUTRO produto já existe hoje
-                    if (temVendaHoje(req.outroProduto)) {
-                        req.cond.signal(); // Acorda SÓ esta thread
-                    }
-                }
-            }
+            conds.registarVenda(produto);
+            conds.notificarWaiters(lock, mem, produto); // Passamos a memoria para checar simultaneas
 
         } finally {
             lock.unlock();
         }
     }
 
-    // --- CONSULTAS (Adaptadas para ler do Disco/Cache) ---
-
-    // Agora calcula on-demand percorrendo os dias -> (Lazy Loading)
+    // --- LEITURAS ---
     public long consultarTotalVendas(String produto) {
         long totalVol = 0;
         lock.lock();
         try {
-            int diasParaVer = (int) (retentionPeriod / (24 * 60 * 60 * 1000));
-            for (int i = 0; i <= diasParaVer; i++) {
-                Map<String, List<Venda>> mapaDia = getVendasDoDia(i); // Busca ao Disco/Cache
+            int maxDias = mem.calcularDiasParaVer();
+            for (int i = 0; i <= maxDias; i++) {
+                // Se i=0 (hoje), guarda na cache. Se i>0, só lê (false)
+                boolean cachear = (i == 0);
+                Map<String, List<Venda>> mapa = mem.getVendasDoDia(i, cachear);
 
-                if (mapaDia != null && mapaDia.containsKey(produto)) {
-                    List<Venda> lista = mapaDia.get(produto);
-                    for (Venda v : lista) {
-                        totalVol += (long) v.quantidade * v.preco;
-                    }
+                if (mapa != null && mapa.containsKey(produto)) {
+                    for (Venda v : mapa.get(produto)) totalVol += (long) v.quantidade * v.preco;
                 }
             }
             return totalVol;
@@ -171,15 +88,16 @@ public class DataBase {
         }
     }
 
-    // tipo: 0=Qtd, 1=Vol, 2=Media, 3=Max
     public double consultarAgregacao(String produto, int d, int tipo) {
         lock.lock();
         try {
             long totalQtd = 0; long totalVol = 0;
             int maxPreco = 0; int countVendas = 0;
             // i=0 -> Hoje || i=1 -> Ontem
-            for (int i = 1; i < d; i++) {
-                Map<String, List<Venda>> mapaDia = getVendasDoDia(i);
+            for (int i = 1; i <= d; i++) {
+                boolean devoGuardar = (i == 0);
+
+                Map<String, List<Venda>> mapaDia = mem.getVendasDoDia(i, devoGuardar);
                 if (mapaDia != null && mapaDia.containsKey(produto)) {
                     List<Venda> lista = mapaDia.get(produto);
                     for (Venda v : lista) {
@@ -206,7 +124,7 @@ public class DataBase {
         lock.lock();
         try {
             // d=1 -> Dia anterior (ontem)
-            Map<String, List<Venda>> mapaDia = getVendasDoDia(d);
+            Map<String, List<Venda>> mapaDia = mem.getVendasDoDia(d, false);
             List<Venda> resultado = new ArrayList<>();
 
             if (mapaDia != null) {
@@ -222,32 +140,33 @@ public class DataBase {
         }
     }
 
-    // --- REQ 5: NOTIFICAÇÕES ---
+    // --- EVENTOS (Waiters) ---
 
     public String esperarVendasConsecutivas(int n) throws InterruptedException {
         lock.lock();
         try {
-            int diaInicial = this.diaCorrenteID;
-            Condition minhaCond = lock.newCondition();
-            EsperaConsecutiva req = new EsperaConsecutiva(n, minhaCond);
+            int diaInicial = mem.diaCorrenteID;
 
-            waitersConsecutivas.add(req);
+            // Snapshot do estado inicial (para a janela deslizante)
+            String prodInicio = conds.ultimoProdutoVendido;
+            int countInicio = (prodInicio != null) ? conds.contadorConsecutivas : 0;
+            long entryID = conds.globalEventID;
+
+            Condition myCond = lock.newCondition();
+            GestorCondicoes.EsperaConsecutiva req = new GestorCondicoes.EsperaConsecutiva(n, myCond);
+            conds.addConsecutiva(req);
 
             try {
                 while (true) {
-                    if (this.diaCorrenteID != diaInicial) {
-                        return null;
-                    }
+                    String res = conds.verificarConsecutivas(n, diaInicial, mem.diaCorrenteID, entryID, prodInicio, countInicio);
 
-                    // Se o objetivo foi atingido (N vezes o mesmo produto)
-                    if (contadorConsecutivas >= n && ultimoProdutoVendido != null) {
-                        return ultimoProdutoVendido; // Sucesso! Retorna "Banana"
-                    }
+                    if (res == null) return null;
+                    if (!res.equals("WAIT")) return res;
 
-                    minhaCond.await();
+                    myCond.await();
                 }
             } finally {
-                waitersConsecutivas.remove(req);
+                conds.removeConsecutiva(req);
             }
         } finally {
             lock.unlock();
@@ -257,91 +176,29 @@ public class DataBase {
     public boolean esperarVendasSimultaneas(String p1, String p2) throws InterruptedException {
         lock.lock();
         try {
-            int diaInicial = this.diaCorrenteID;
-            Condition minhaCond = lock.newCondition();
-            EsperaSimultanea req1 = new EsperaSimultanea(p2, minhaCond); // Se vender p1, verifica p2
-            EsperaSimultanea req2 = new EsperaSimultanea(p1, minhaCond); // Se vender p2, verifica p1
+            int diaInicial = mem.diaCorrenteID;
+            Condition myCond = lock.newCondition();
 
-            // Registar interesse nos dois produtos
-            waitersSimultaneas.computeIfAbsent(p1, k -> new ArrayList<>()).add(req1);
-            waitersSimultaneas.computeIfAbsent(p2, k -> new ArrayList<>()).add(req2);
+            GestorCondicoes.EsperaSimultanea req1 = new GestorCondicoes.EsperaSimultanea(p2, myCond);
+            GestorCondicoes.EsperaSimultanea req2 = new GestorCondicoes.EsperaSimultanea(p1, myCond);
 
-            while (true) {
-                if (this.diaCorrenteID != diaInicial) {
-                    // Limpar registos
-                    removerSimultanea(p1, req1);
-                    removerSimultanea(p2, req2);
-                    return false;
+            conds.addSimultanea(p1, req1);
+            conds.addSimultanea(p2, req2);
+
+            try {
+                while(true) {
+                    if (mem.diaCorrenteID != diaInicial) return false;
+
+                    if (mem.temVendaHoje(p1) && mem.temVendaHoje(p2)) return true;
+
+                    myCond.await();
                 }
-
-                if (temVendaHoje(p1) && temVendaHoje(p2)) {
-                    removerSimultanea(p1, req1);
-                    removerSimultanea(p2, req2);
-                    return true;
-                }
-                minhaCond.await();
+            } finally {
+                conds.removeSimultanea(p1, req1);
+                conds.removeSimultanea(p2, req2);
             }
         } finally {
             lock.unlock();
         }
-    }
-
-    // Auxiliar para limpar
-    private void removerSimultanea(String prod, EsperaSimultanea req) {
-        List<EsperaSimultanea> l = waitersSimultaneas.get(prod);
-        if (l != null) l.remove(req);
-    }
-
-    private boolean temVendaHoje(String prod) {
-        return diaCorrenteVendas.containsKey(prod) && !diaCorrenteVendas.get(prod).isEmpty();
-    }
-    // --- GESTÃO DE DISCO (REQ 7) ---
-    private Map<String, List<Venda>> getVendasDoDia(int d) {
-        int targetDayID = diaCorrenteID - d;
-        if (targetDayID < 0) return null; // Antes do inicio dos tempos
-
-        // Verifica Cache
-        if (cacheSeries.containsKey(targetDayID)) {
-            return cacheSeries.get(targetDayID);
-        }
-
-        // Verifica Disco
-        Map<String, List<Venda>> doDisco = carregarDiaDoDisco(targetDayID);
-        if (doDisco != null) {
-            cacheSeries.put(targetDayID, doDisco); // Mete na cache (LRU limpa se cheio)
-            return doDisco;
-        }
-
-        return null;
-    }
-
-    private void salvarDiaEmDisco(int diaID, Map<String, List<Venda>> dados) {
-        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream("dia_" + diaID + ".dat"))) {
-            oos.writeObject(dados);
-        } catch (IOException e) { e.printStackTrace(); }
-    }
-
-    private Map<String, List<Venda>> carregarDiaDoDisco(int diaID) {
-        File f = new File("dia_" + diaID + ".dat");
-        if (!f.exists()) return null;
-
-        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(f))) {
-            return (Map<String, List<Venda>>) ois.readObject();
-        } catch (Exception e) { return null; }
-    }
-
-    private void salvarUtilizadores() {
-        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream("users.dat"))) {
-            oos.writeObject(utilizadores);
-        } catch (IOException e) { e.printStackTrace(); }
-    }
-
-    public void carregarEstadoUtilizadores() {
-        File f = new File("users.dat");
-        if (!f.exists()) return;
-
-        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(f))) {
-            this.utilizadores = (Map<String, String>) ois.readObject();
-        } catch (Exception e) { e.printStackTrace(); }
     }
 }

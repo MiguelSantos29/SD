@@ -16,7 +16,6 @@ public class Stub implements AutoCloseable {
 
     public Stub(String host, int port) throws IOException {
         Socket s = new Socket(host, port);
-        // Usa a TaggedConnection atualizada que sabe lidar com Frames/Tags
         TaggedConnection tc = new TaggedConnection(s);
         this.demux = new Demultiplexer(tc);
         this.demux.start();
@@ -38,10 +37,7 @@ public class Stub implements AutoCloseable {
         int reqId = geradorIds.nextInt(); // Gera ID único para este pedido
         demux.send(reqId, payload);
 
-        // Bloquear à espera da resposta com este ID
         byte[] responseData = demux.receive(reqId);
-
-        // Devolver stream para leitura
         return new DataInputStream(new ByteArrayInputStream(responseData));
     }
 
@@ -92,7 +88,6 @@ public class Stub implements AutoCloseable {
         return lerRespostaSimples(dis);
     }
 
-    // Criar uma classe auxiliar estática dentro do Stub ou fora
     public static class ResumoVenda {
         public String produto;
         public int preco;
@@ -104,7 +99,6 @@ public class Stub implements AutoCloseable {
         }
     }
 
-    // Alterar o método consultarEventos para devolver List<ResumoVenda>
     public List<ResumoVenda> consultarEventos(Set<String> prods, int dia) throws Exception {
         DataInputStream dis = sendAndReceive(5, dos -> {
             dos.writeInt(prods.size());

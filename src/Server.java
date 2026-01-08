@@ -51,9 +51,7 @@ public class Server {
         public void run() {
             try (TaggedConnection conn = new TaggedConnection(socket)) {
 
-                // --- CORREÇÃO: O ciclo while(true) é obrigatório aqui! ---
                 while (true) {
-                    // Bloqueia aqui à espera do próximo pedido do cliente
                     TaggedConnection.Frame req = conn.receive();
                     new Thread(() -> {
                         try {

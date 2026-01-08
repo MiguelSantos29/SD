@@ -5,8 +5,7 @@ import java.util.*;
 
 public class Client {
 
-    public static void main(String[] args) throws IOException {
-        // Usamos o try-with-resources para fechar tudo no fim
+    public static void main(String[] args) {
         try (Stub stub = new Stub("localhost", 12345)) {
             Scanner sc = new Scanner(System.in);
             System.out.println(">>> Conectado ao servidor (Via Demultiplexer)!");
@@ -84,7 +83,7 @@ public class Client {
                                     System.out.print("Produto a consultar: ");
                                     String pConsulta = sc.next();
                                     String resCons = stub.consultarTotal(pConsulta);
-                                    System.out.println("RESPOSTA: " + resCons);
+                                    System.out.println("RESPOSTA: " + resCons + " euros.");
                                     break;
 
                                 case 3: // Avançar Dia

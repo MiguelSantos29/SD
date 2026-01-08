@@ -64,7 +64,6 @@ public class TesterFuncional {
             // Pedimos eventos do dia com ID=6 (Hoje) - 6 = Dia 0?
             // A lógica de dias é relativa. Se hoje é dia 6 e pedimos d=6, vamos buscar o dia 0.
             System.out.println("A ler dados antigos do disco...");
-            // Atenção: adapta o 'd' conforme a tua lógica atual de dias
             String resAntigo = stub.consultarTotal("Maca");
             System.out.println("Total Global Maça (deve incluir o dia 0): " + resAntigo);
 
@@ -83,9 +82,11 @@ public class TesterFuncional {
 
     private static void limparFicheirosAntigos() {
         File folder = new File(".");
-        File[] files = folder.listFiles((dir, name) -> name.endsWith(".dat"));
+        File[] files = folder.listFiles((_, name) -> name.endsWith(".dat"));
         if (files != null) {
-            for (File f : files) f.delete();
+            for (File f : files) {
+                f.delete();
+            }
         }
         System.out.println("Ambiente limpo.");
     }
