@@ -7,7 +7,7 @@ public class Client {
     public static void main(String[] args) {
         try (Stub stub = new Stub("localhost", 12345)) {
             Scanner sc = new Scanner(System.in);
-            System.out.println(">>> Conectado ao servidor (Via Demultiplexer)!");
+            System.out.println(" Conectado ao servidor! ");
 
             // --- 1. AUTENTICAÇÃO ---
             boolean autenticado = false;

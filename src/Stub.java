@@ -140,7 +140,7 @@ public class Stub implements AutoCloseable {
     public String esperarConsecutivas(int n) throws Exception {
         DataInputStream dis = sendAndReceive(9, dos -> dos.writeInt(n));
         // Tratamento especial porque pode retornar nome do produto
-        dis.readByte(); // Tag 3
+        dis.readByte();
         boolean suc = dis.readBoolean();
         String msg = dis.readUTF(); // Nome do produto ou msg de erro
         if (!suc) return "Falhou: " + msg;
@@ -148,7 +148,7 @@ public class Stub implements AutoCloseable {
     }
 
     private String lerRespostaSimples(DataInputStream dis) throws IOException {
-        dis.readByte(); // Ignorar Tag 3
+        dis.readByte();
         boolean suc = dis.readBoolean();
         String msg = dis.readUTF();
         if (!suc) throw new RuntimeException(msg); // Lança erro se falhou

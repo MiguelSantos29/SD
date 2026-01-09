@@ -24,7 +24,9 @@ public class DataBase {
             mem.utilizadores.put(user, pass);
             mem.salvarUtilizadores();
             return true;
-        } finally { lockAuth.unlock(); }
+        } finally {
+            lockAuth.unlock();
+        }
     }
 
     public boolean autenticarUtilizador(String user, String pass) {
@@ -32,7 +34,9 @@ public class DataBase {
         try {
             String real = mem.utilizadores.get(user);
             return real != null && real.equals(pass);
-        } finally { lockAuth.unlock(); }
+        } finally {
+            lockAuth.unlock();
+        }
     }
 
     // --- ESCRITAS ---
@@ -200,6 +204,8 @@ public class DataBase {
                 conds.removeSimultanea(p1, req1);
                 conds.removeSimultanea(p2, req2);
             }
-        } finally { lock.unlock(); }
+        } finally {
+            lock.unlock();
+        }
     }
 }

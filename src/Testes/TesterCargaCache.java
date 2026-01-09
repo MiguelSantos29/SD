@@ -2,7 +2,11 @@ package src.Testes;
 
 import src.DataBase;
 import java.io.File;
+import java.util.HashSet;
 import java.util.Random;
+import java.util.Set;
+
+import static java.lang.Thread.sleep;
 
 public class TesterCargaCache {
 
@@ -43,8 +47,6 @@ public class TesterCargaCache {
         System.out.println("Estado Esperado da Cache (LRU): Deve conter os dias mais recentes (ex: 3, 4, 5).");
 
         // --- TESTE 1: CONSULTA TOTAL (SCAN - parâmetro false) ---
-        // Isto vai ler os dias 0, 1, 2 (que estão no disco).
-        // COMO USASTE 'false', ELES NÃO DEVEM ENTRAR NA CACHE PERMANENTE.
 
         System.out.println("\n>>> TESTE 1: Consultar Total (Scan Completo)");
         long t1 = System.currentTimeMillis();
@@ -56,25 +58,25 @@ public class TesterCargaCache {
         System.out.println("VALIDAÇÃO: Se o tempo foi baixo e não viste logs de 'Cache Eviction' massivo, funcionou.");
 
         // --- TESTE 2: CONSULTA AGREGAÇÃO (LOAD - parâmetro true) ---
-        // Vamos pedir um dia antigo (ex: Dia 1). Ele DEVE ir ao disco e FICAR na cache.
 
         System.out.println("\n>>> TESTE 2: Consultar Agregação Dia Antigo (Dia 1)");
         System.out.println("    (Isto deve forçar uma leitura de disco e atualizar a cache)");
 
+        Set<String> produtos = new HashSet<>();
+        produtos.add(PRODUTO_TESTE);
+
         long t3 = System.currentTimeMillis();
         // Consultar dia 1 (histórico)
-        // Nota: 'd' no teu código define o intervalo. Para pegar o Dia 1 (que foi há 4 dias atrás), d=5.
-        // O loop corre e quando chegar ao índice correspondente ao Dia 1, vai chamar get(true).
-        db.consultarAgregacao(PRODUTO_TESTE, 5, 0);
+        db.consultarEventos(produtos, 4);
         long t4 = System.currentTimeMillis();
         System.out.println("    Tempo da 1ª consulta (Frio/Disco): " + (t4 - t3) + "ms");
 
         // --- TESTE 3: REPETIR A CONSULTA (CACHE HIT) ---
-        // Agora o Dia 1 deve estar na memória. Deve ser instantâneo.
 
+        sleep(1000);
         System.out.println("\n>>> TESTE 3: Repetir Agregação Dia 1 (Cache Hit)");
         long t5 = System.currentTimeMillis();
-        db.consultarAgregacao(PRODUTO_TESTE, 5, 0);
+        db.consultarEventos(produtos, 4);
         long t6 = System.currentTimeMillis();
         System.out.println("    Tempo da 2ª consulta (Quente/RAM): " + (t6 - t5) + "ms");
 

@@ -9,8 +9,6 @@ public class Tester {
     private static final int NUM_CLIENTES = 50;
     private static final int OPS_POR_CLIENTE = 100;
 
-
-
     public static void main(String[] args) throws InterruptedException {
         String[] ListaDeCompras = {"Maca", "Banana", "Laranja", "TV", "Radio"};
         System.out.println(">>> A iniciar Teste de Carga...");
