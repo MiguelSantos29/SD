@@ -16,6 +16,7 @@ public class GestorCondicoes {
 
     // Estado dos Eventos
     private final List<EsperaConsecutiva> waitersConsecutivas = new ArrayList<>();
+    public Map<String, Long> idsUltimaVenda = new HashMap<>();
     private final Map<String, List<EsperaSimultanea>> waitersSimultaneas = new HashMap<>();
 
     // Contadores Globais

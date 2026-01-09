@@ -47,6 +47,13 @@ public class Memoria {
         return diaCorrenteVendas.containsKey(prod) && !diaCorrenteVendas.get(prod).isEmpty();
     }
 
+    public int getQuantidadeVendasHoje(String produto) {
+        if (diaCorrenteVendas.containsKey(produto)) {
+            return diaCorrenteVendas.get(produto).size();
+        }
+        return 0;
+    }
+
     // --- LEITURA INTELIGENTE (REQ 7) ---
 
     public int calcularDiasParaVer() {

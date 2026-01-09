@@ -1,6 +1,5 @@
 package src;
 
-import java.io.*;
 import java.util.*;
 
 public class Client {
@@ -21,6 +20,7 @@ public class Client {
 
                 if (!sc.hasNextInt()) break;
                 int op1 = sc.nextInt();
+                //Verifica que op1 é valida
 
                 if (op1 == 0) return;
 
@@ -38,7 +38,7 @@ public class Client {
                         } else { // REGISTAR
                             String msg = stub.registar(user, pass);
                             System.out.println(">> " + msg);
-                            System.out.println(">> Agora faça login para entrar.");
+                            System.out.println("Agora faça login para entrar.");
                         }
                     } catch (Exception e) {
                         System.out.println("ERRO: " + e.getMessage());
@@ -74,7 +74,6 @@ public class Client {
                                     int qtd = sc.nextInt();
                                     System.out.print("Preço (inteiro): ");
                                     int preco = sc.nextInt();
-
                                     String resIns = stub.inserir(System.currentTimeMillis(), prod, qtd, preco);
                                     System.out.println("RESPOSTA: " + resIns);
                                     break;

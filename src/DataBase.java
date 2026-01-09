@@ -48,7 +48,6 @@ public class DataBase {
             conds.contadorConsecutivas = 0;
             conds.notificarMudancaDia();
             conds.globalEventID = 0;
-
         } finally {
             lock.unlock();
         }
@@ -75,8 +74,7 @@ public class DataBase {
             int maxDias = mem.calcularDiasParaVer();
             for (int i = 0; i <= maxDias; i++) {
                 // Se i=0 (hoje), guarda na cache. Se i>0, só lê (false)
-                boolean cachear = (i == 0);
-                Map<String, List<Venda>> mapa = mem.getVendasDoDia(i, cachear);
+                Map<String, List<Venda>> mapa = mem.getVendasDoDia(i, false);
 
                 if (mapa != null && mapa.containsKey(produto)) {
                     for (Venda v : mapa.get(produto)) totalVol += (long) v.quantidade * v.preco;
@@ -93,11 +91,10 @@ public class DataBase {
         try {
             long totalQtd = 0; long totalVol = 0;
             int maxPreco = 0; int countVendas = 0;
-            // i=0 -> Hoje || i=1 -> Ontem
+            // i=1 -> Ontem
             for (int i = 1; i <= d; i++) {
-                boolean devoGuardar = (i == 0);
 
-                Map<String, List<Venda>> mapaDia = mem.getVendasDoDia(i, devoGuardar);
+                Map<String, List<Venda>> mapaDia = mem.getVendasDoDia(i, true); // Cache vai funcionar aqui
                 if (mapaDia != null && mapaDia.containsKey(produto)) {
                     List<Venda> lista = mapaDia.get(produto);
                     for (Venda v : lista) {
@@ -124,7 +121,7 @@ public class DataBase {
         lock.lock();
         try {
             // d=1 -> Dia anterior (ontem)
-            Map<String, List<Venda>> mapaDia = mem.getVendasDoDia(d, false);
+            Map<String, List<Venda>> mapaDia = mem.getVendasDoDia(d, true); // Cache vai funcionar aqui
             List<Venda> resultado = new ArrayList<>();
 
             if (mapaDia != null) {
@@ -177,19 +174,25 @@ public class DataBase {
         lock.lock();
         try {
             int diaInicial = mem.diaCorrenteID;
-            Condition myCond = lock.newCondition();
+            int qtdInicialP1 = mem.getQuantidadeVendasHoje(p1);
+            int qtdInicialP2 = mem.getQuantidadeVendasHoje(p2);
 
+            Condition myCond = lock.newCondition();
             GestorCondicoes.EsperaSimultanea req1 = new GestorCondicoes.EsperaSimultanea(p2, myCond);
             GestorCondicoes.EsperaSimultanea req2 = new GestorCondicoes.EsperaSimultanea(p1, myCond);
-
             conds.addSimultanea(p1, req1);
             conds.addSimultanea(p2, req2);
 
             try {
                 while(true) {
                     if (mem.diaCorrenteID != diaInicial) return false;
-
-                    if (mem.temVendaHoje(p1) && mem.temVendaHoje(p2)) return true;
+                    if (mem.temVendaHoje(p1) && mem.temVendaHoje(p2)) {
+                        int qtdAtualP1 = mem.getQuantidadeVendasHoje(p1);
+                        int qtdAtualP2 = mem.getQuantidadeVendasHoje(p2);
+                        if ((qtdAtualP1 > qtdInicialP1) && (qtdAtualP2 > qtdInicialP2)) {
+                            return true;
+                        }
+                    }
 
                     myCond.await();
                 }
@@ -197,8 +200,6 @@ public class DataBase {
                 conds.removeSimultanea(p1, req1);
                 conds.removeSimultanea(p2, req2);
             }
-        } finally {
-            lock.unlock();
-        }
+        } finally { lock.unlock(); }
     }
 }
