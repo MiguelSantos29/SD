@@ -194,7 +194,10 @@ public class DataBase {
                     if (mem.temVendaHoje(p1) && mem.temVendaHoje(p2)) {
                         int qtdAtualP1 = mem.getQuantidadeVendasHoje(p1);
                         int qtdAtualP2 = mem.getQuantidadeVendasHoje(p2);
-                        if ((qtdAtualP1 > qtdInicialP1) && (qtdAtualP2 > qtdInicialP2)) {
+                        // Faltava uma condicao na logica
+                        if (((qtdAtualP1 > qtdInicialP1) && (qtdAtualP2 > qtdInicialP2))
+                                && ((conds.ultultimoProdutoVendido.equals(p1) && conds.ultimoProdutoVendido.equals(p2))
+                                ||(conds.ultultimoProdutoVendido.equals(p2) && conds.ultimoProdutoVendido.equals(p1)))) {
                             return true;
                         }
                     }

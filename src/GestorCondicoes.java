@@ -16,7 +16,7 @@ public class GestorCondicoes {
 
     // Estado dos Eventos
     private final List<EsperaConsecutiva> waitersConsecutivas = new ArrayList<>();
-    public Map<String, Long> idsUltimaVenda = new HashMap<>();
+    public Map<String, Long> idsUltimaVenda = new HashMap<>(); // eliminar
     private final Map<String, List<EsperaSimultanea>> waitersSimultaneas = new HashMap<>();
 
     // Contadores Globais
@@ -24,6 +24,7 @@ public class GestorCondicoes {
 
     // Estado Consecutivas
     public String ultimoProdutoVendido = null;
+    public String ultultimoProdutoVendido = null; // para a condicao da Condicao Simultaneas
     public int contadorConsecutivas = 0;
 
     // --- LÓGICA DE INSERÇÃO ---
@@ -35,6 +36,7 @@ public class GestorCondicoes {
         if (produto.equals(ultimoProdutoVendido)) {
             contadorConsecutivas++;
         } else {
+            ultultimoProdutoVendido = ultimoProdutoVendido; // para a condicao da Condicao Simultaneas
             ultimoProdutoVendido = produto;
             contadorConsecutivas = 1;
         }
@@ -42,7 +44,7 @@ public class GestorCondicoes {
 
     public void notificarWaiters(Memoria memoria, String produtoInserido) {
         for (EsperaConsecutiva req : waitersConsecutivas) {
-            if (req.alvo >= contadorConsecutivas)
+            if (req.alvo >= contadorConsecutivas) // alteramos depois
                 req.cond.signal();
         }
         List<EsperaSimultanea> lista = waitersSimultaneas.get(produtoInserido);
