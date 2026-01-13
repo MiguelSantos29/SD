@@ -40,9 +40,10 @@ public class GestorCondicoes {
         }
     }
 
-    public void notificarWaiters(ReentrantLock lock, Memoria memoria, String produtoInserido) {
+    public void notificarWaiters(Memoria memoria, String produtoInserido) {
         for (EsperaConsecutiva req : waitersConsecutivas) {
-            req.cond.signal();
+            if (req.alvo >= contadorConsecutivas)
+                req.cond.signal();
         }
         List<EsperaSimultanea> lista = waitersSimultaneas.get(produtoInserido);
         if (lista != null) {

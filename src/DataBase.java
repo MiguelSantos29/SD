@@ -63,7 +63,8 @@ public class DataBase {
             mem.adicionarVendaHoje(new Venda(ts, produto, qtd, preco));
 
             conds.registarVenda(produto);
-            conds.notificarWaiters(lock, mem, produto); // Passamos a memoria para checar simultaneas
+            conds.notificarWaiters(mem, produto); // Passamos a memoria para checar simultaneas
+            // tirei o lock daqui porque já estamos com o lock
 
         } finally {
             lock.unlock();
